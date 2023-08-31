@@ -1,0 +1,200 @@
+---------------------------
+SELECT COUNT(DISTINCT p.id)
+FROM stackoverflow.posts AS p
+JOIN stackoverflow.post_types AS pt ON p.post_type_id=pt.id
+WHERE pt.type LIKE 'Question' AND
+      p.score > 300 OR
+      p.favorites_count >=100
+---------------------------
+SELECT ROUND(AVG(count_posts))
+FROM 
+(SELECT creation_date::date,
+       COUNT(p.id) AS count_posts
+FROM stackoverflow.posts AS p
+JOIN stackoverflow.post_types AS pt ON p.post_type_id=pt.id
+WHERE (creation_date::date BETWEEN '2008-11-01' AND '2008-11-18') AND (pt.type LIKE 'Question')
+GROUP BY 1) count_post
+---------------------------
+SELECT COUNT(DISTINCT u.id)
+FROM stackoverflow.users AS u
+JOIN stackoverflow.badges AS b ON u.id=b.user_id
+WHERE (u.creation_date::date) = (b.creation_date::date)
+---------------------------
+SELECT COUNT(post_id.id)
+FROM
+(SELECT p.id
+FROM stackoverflow.posts AS p
+JOIN stackoverflow.votes AS v ON p.id = v.post_id
+JOIN stackoverflow.users AS u ON p.user_id = u.id
+WHERE u.display_name LIKE 'Joel Coehoorn'
+GROUP BY p.id
+HAVING COUNT(v.id) >=1) post_id
+---------------------------
+SELECT *,
+       ROW_NUMBER() OVER(ORDER BY id DESC) AS rank
+FROM stackoverflow.vote_types
+ORDER BY id;
+---------------------------
+SELECT u.id,
+       COUNT(vt.id)
+FROM stackoverflow.users AS u
+LEFT JOIN stackoverflow.votes AS v ON u.id=v.user_id
+JOIN stackoverflow.vote_types AS vt ON v.vote_type_id=vt.id
+WHERE vt.name = 'Close'
+GROUP BY u.id
+ORDER BY 2 DESC, 1 DESC
+LIMIT 10
+---------------------------
+WITH
+badges_count AS (SELECT u.id,
+       COUNT(b.id) AS number_of_badges
+FROM stackoverflow.users AS u
+LEFT JOIN stackoverflow.badges AS b ON u.id=b.user_id
+WHERE b.creation_date::date BETWEEN '2008-11-15' AND '2008-12-15'
+GROUP BY 1
+ORDER BY 2 DESC, 1)
+SELECT *,
+       DENSE_RANK() OVER (ORDER BY number_of_badges DESC)
+FROM badges_count
+LIMIT 10
+---------------------------
+SELECT title,
+       user_id,
+       score,
+       ROUND(AVG (score) OVER (PARTITION BY user_id))
+FROM stackoverflow.posts 
+WHERE title IS NOT NULL AND score != 0
+---------------------------
+WITH
+badges_user AS (SELECT user_id,
+       COUNT (id) AS number_of_badges
+FROM stackoverflow.badges
+GROUP BY 1
+HAVING COUNT (id) > 1000)
+SELECT title
+FROM stackoverflow.posts
+WHERE title IS NOT NULL AND user_id IN (SELECT user_id FROM badges_user)
+---------------------------
+SELECT id,
+       views,
+       CASE
+           WHEN views >= 350 THEN 1
+           WHEN (views < 350 AND views >= 100) THEN 2
+           WHEN views < 100 THEN 3
+       END
+FROM stackoverflow.users
+WHERE location LIKE '%United States%' and views != 0
+---------------------------
+WITH
+people AS
+(SELECT EXTRACT(DAY FROM creation_date::date) AS days,
+       COUNT(id) AS number_of_people
+FROM stackoverflow.users
+WHERE creation_date::date BETWEEN '2008-11-01' AND '2008-11-30'
+GROUP BY EXTRACT(DAY FROM creation_date::date))
+
+SELECT days,
+       number_of_people,
+       SUM(number_of_people) OVER (ORDER BY days)
+FROM people
+---------------------------
+WITH
+data_registration AS
+(SELECT DISTINCT p.user_id,
+       u.creation_date AS registration_date,
+       FIRST_VALUE(p.creation_date) OVER (PARTITION BY p.user_id ORDER BY p.creation_date) AS first_post
+FROM stackoverflow.users AS u
+RIGHT JOIN stackoverflow.posts AS p ON u.id=p.user_id)
+SELECT user_id,
+       first_post - registration_date AS interval
+FROM data_registration
+---------------------------
+SELECT DATE_TRUNC ('month', creation_date)::date,
+       SUM(views_count)
+FROM stackoverflow.posts
+WHERE creation_date BETWEEN '2008-01-01' AND '2008-12-31'
+GROUP BY 1
+ORDER BY 2 DESC;
+---------------------------
+SELECT u.display_name,
+       COUNT(DISTINCT p.user_id)
+FROM stackoverflow.posts AS p
+JOIN stackoverflow.post_types AS pt ON p.post_type_id=pt.id
+JOIN stackoverflow.users AS u ON p.user_id=u.id
+WHERE pt.type = 'Answer' AND
+      p.creation_date::date BETWEEN u.creation_date::date AND (u.creation_date::date + INTERVAL '1 month')
+GROUP BY 1
+HAVING COUNT(p.id) > 100
+ORDER BY 1;
+---------------------------
+WITH 
+user_id AS
+(SELECT u.id
+FROM stackoverflow.posts AS p
+JOIN stackoverflow.users AS u ON p.user_id=u.id
+WHERE DATE_TRUNC('month', u.creation_date)::date = '2008-09-01'
+              AND DATE_TRUNC('month', p.creation_date)::date = '2008-12-01'
+GROUP BY 1
+HAVING COUNT(u.id)>0)
+      
+SELECT COUNT(id), 
+       DATE_TRUNC ('month', creation_date)::date
+FROM stackoverflow.posts
+WHERE user_id IN (SELECT * FROM user_id)
+      AND
+      creation_date BETWEEN '2008-01-01' AND '2008-12-31'
+GROUP BY 2
+ORDER BY 2 DESC 
+---------------------------
+SELECT user_id,
+       creation_date,
+       views_count,
+       SUM(views_count) OVER (PARTITION BY user_id ORDER BY creation_date)
+FROM stackoverflow.posts
+ORDER BY 1, 2
+---------------------------
+WITH
+users_activity AS
+(SELECT user_id,
+       creation_date::date,
+       COUNT(creation_date::date) as days
+FROM stackoverflow.posts
+WHERE creation_date BETWEEN '2008-12-01' AND '2008-12-07'
+GROUP BY 1, 2)
+SELECT ROUND(AVG(days))
+FROM users_activity
+---------------------------
+WITH
+views AS
+(SELECT EXTRACT (MONTH FROM creation_date::date) AS month,
+       COUNT(DISTINCT id) AS count_views
+FROM stackoverflow.posts
+WHERE creation_date::date BETWEEN '2008-09-01' AND '2008-12-31'
+GROUP BY 1)
+SELECT *,
+       ROUND(((count_views::numeric/LAG(count_views) OVER (ORDER BY month))-1)*100,2)
+FROM views
+---------------------------
+WITH
+best_user AS 
+(SELECT user_id,
+       COUNT(DISTINCT id)
+FROM stackoverflow.posts
+GROUP BY 1
+ORDER BY 2 DESC
+LIMIT 1),
+
+user_info AS
+(SELECT p.user_id,
+       p.creation_date,
+       EXTRACT ('WEEK' FROM p.creation_date) AS week
+FROM stackoverflow.posts AS p
+RIGHT JOIN best_user AS bu ON p.user_id=bu.user_id
+WHERE DATE_TRUNC ('month', p.creation_date)::date = '2008-10-01')
+
+SELECT DISTINCT week,
+       MAX(creation_date) OVER (PARTITION BY week)
+FROM user_info
+---------------------------
+
+---------------------------
