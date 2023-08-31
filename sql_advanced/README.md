@@ -6,3 +6,7 @@
 
 ## Инструменты и навыки
 `SQL` `PostgreSQL`
+
+## База данных
+![image](https://github.com/AMalchenko/study_projects/assets/143591700/655671fc-8933-4d62-8d3a-1c25623851f2)
+
